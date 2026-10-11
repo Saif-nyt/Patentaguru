@@ -94,6 +94,7 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
   // Reset transient state shortly after the modal closes
   useEffect(() => {
     if (!isOpen) {
+      setIsLoading(false);
       const t = window.setTimeout(() => {
         setVerifyEmail(null);
         setPendingStudent(null);
@@ -182,6 +183,9 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
     if (message.toLowerCase().includes('fetch')) {
       return 'ইন্টারনেট কানেকশন সমস্যা। অনুগ্রহ করে আবার চেষ্টা করুন।';
     }
+    if (message.toLowerCase().includes('timeout') || message.toLowerCase().includes('timed out')) {
+      return 'সার্ভার থেকে উত্তর পেতে দেরি হচ্ছে। আপনার ইন্টারনেট সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।';
+    }
     if (code.includes('RATE_LIMIT')) {
       return 'অনেকবার চেষ্টা করা হয়েছে। কিছুক্ষণ পর আবার চেষ্টা করুন।';
     }
@@ -190,6 +194,7 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return;
     setError('');
 
     // 1. Validate Name Group Policy
@@ -226,47 +231,47 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
 
     // 5. Keep phone numbers unique for new accounts while allowing existing
     // student records to reconnect to Better Auth with their original email.
+    setIsLoading(true);
     try {
-      const localList: any[] = JSON.parse(localStorage.getItem('patente_registered_students') || '[]');
-      let existingStudent = localList.some((student) => (student?.email || '').toLowerCase() === cleanEmail);
-      setIsLoading(true);
-      const cloudCheck = await fetch(`/api/students?email=${encodeURIComponent(cleanEmail)}`);
-      if (cloudCheck.ok) {
-        const cloudUser = await cloudCheck.json();
-        existingStudent = existingStudent || Boolean(cloudUser?.email);
-      }
-
-      if (!existingStudent) {
-        const phoneTakenLocal = localList.some((student) => {
-          const digits = (student?.phone || '').replace(/\D/g, '');
-          return (student?.email || '').toLowerCase() !== cleanEmail &&
-            digits.length >= 8 &&
-            digits.endsWith(rawDigits.slice(-8));
+      try {
+        const localList: any[] = JSON.parse(localStorage.getItem('patente_registered_students') || '[]');
+        let existingStudent = localList.some((student) => (student?.email || '').toLowerCase() === cleanEmail);
+        const cloudCheck = await fetch(`/api/students?email=${encodeURIComponent(cleanEmail)}`, {
+          signal: AbortSignal.timeout(15_000),
         });
-        if (phoneTakenLocal) {
-          setIsLoading(false);
-          setError('এই মোবাইল নম্বরটি দিয়ে ইতোমধ্যে PatenteGuru-তে অন্য অ্যাকাউন্ট খোলা আছে। দয়া করে আপনার নিজস্ব সঠিক নম্বর দিন।');
-          return;
+        if (cloudCheck.ok) {
+          const cloudUser = await cloudCheck.json();
+          existingStudent = existingStudent || Boolean(cloudUser?.email);
         }
 
-        const cloudPhoneCheck = await fetch(`/api/students?phone=${encodeURIComponent(rawDigits)}`);
-        if (cloudPhoneCheck.ok) {
-          const cloudPhoneUser = await cloudPhoneCheck.json();
-          if (cloudPhoneUser && cloudPhoneUser.phone) {
-            setIsLoading(false);
+        if (!existingStudent) {
+          const phoneTakenLocal = localList.some((student) => {
+            const digits = (student?.phone || '').replace(/\D/g, '');
+            return (student?.email || '').toLowerCase() !== cleanEmail &&
+              digits.length >= 8 &&
+              digits.endsWith(rawDigits.slice(-8));
+          });
+          if (phoneTakenLocal) {
             setError('এই মোবাইল নম্বরটি দিয়ে ইতোমধ্যে PatenteGuru-তে অন্য অ্যাকাউন্ট খোলা আছে। দয়া করে আপনার নিজস্ব সঠিক নম্বর দিন।');
             return;
           }
-        }
-      }
-    } catch (checkErr) {
-      console.warn('Duplicate check warning:', checkErr);
-    }
 
-    try {
-      setIsLoading(true);
+          const cloudPhoneCheck = await fetch(`/api/students?phone=${encodeURIComponent(rawDigits)}`, {
+            signal: AbortSignal.timeout(15_000),
+          });
+          if (cloudPhoneCheck.ok) {
+            const cloudPhoneUser = await cloudPhoneCheck.json();
+            if (cloudPhoneUser && cloudPhoneUser.phone) {
+              setError('এই মোবাইল নম্বরটি দিয়ে ইতোমধ্যে PatenteGuru-তে অন্য অ্যাকাউন্ট খোলা আছে। দয়া করে আপনার নিজস্ব সঠিক নম্বর দিন।');
+              return;
+            }
+          }
+        }
+      } catch (checkErr) {
+        console.warn('Duplicate check warning:', checkErr);
+      }
+
       const student = await registerStudent(name.trim(), email.trim(), cleanPhone, password);
-      setIsLoading(false);
       if (student.emailVerified === false) {
         // Block access until Better Auth confirms the email address.
         setPendingStudent(student);
@@ -277,8 +282,10 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
       }
       setRegisteredStudent(student);
     } catch (err: any) {
-      setIsLoading(false);
+      console.warn('Student registration failed:', err);
       setError(getAuthErrorMessage(err));
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -295,10 +302,10 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
       return;
     }
 
+    if (isLoading) return;
     try {
       setIsLoading(true);
       const student = await loginStudent(email, password);
-      setIsLoading(false);
       if (student.emailVerified === false) {
         // Signed in but email not verified yet → keep the modal open on the verify screen
         onLoginSuccess(student);
@@ -319,17 +326,21 @@ export const StudentAuthModal: React.FC<StudentAuthModalProps> = ({
         return;
       }
       setError(getAuthErrorMessage(err));
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleGoogleSignIn = async () => {
+    if (isLoading) return;
     setError('');
     setIsLoading(true);
     try {
       await loginStudentWithGoogle();
     } catch (err: any) {
-      setIsLoading(false);
       setError(getAuthErrorMessage(err));
+    } finally {
+      setIsLoading(false);
     }
   };
 

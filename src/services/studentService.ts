@@ -89,6 +89,7 @@ export const syncStudentToServerDb = async (student: StudentProfile): Promise<bo
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify(student),
+      signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) {
       console.warn("Student profile sync failed:", res.status, await res.text());
@@ -106,7 +107,10 @@ export const fetchStudentFromServerDb = async (email: string): Promise<Partial<S
   try {
     const cleanEmail = email.trim().toLowerCase();
     const headers = await studentAuthHeaders();
-    const res = await fetch(`/api/students?email=${encodeURIComponent(cleanEmail)}`, { headers });
+    const res = await fetch(`/api/students?email=${encodeURIComponent(cleanEmail)}`, {
+      headers,
+      signal: AbortSignal.timeout(15_000),
+    });
     if (res.status === 404) return null;
     if (!res.ok) {
       console.warn("Student profile fetch failed:", res.status, await res.text());
