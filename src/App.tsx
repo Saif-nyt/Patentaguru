@@ -710,6 +710,31 @@ export function App() {
     } catch {}
   }, []);
 
+  // Return OAuth account-linking failures to the auth modal with actionable
+  // guidance instead of leaving the user on Better Auth's raw error URL.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const authError = params.get('error');
+    if (!authError) return;
+
+    const accountLinkMessages: Record<string, string> = {
+      unable_to_link_account:
+        'এই ইমেইলে আগে থেকেই অ্যাকাউন্ট আছে, কিন্তু সেটি ভেরিফাই করা নেই অথবা সার্ভারের Google account-linking সেটিং আপডেট হয়নি। আগে ইমেইল ও পাসওয়ার্ড দিয়ে সাইন ইন করে ইমেইল ভেরিফাই করুন, তারপর Google দিয়ে আবার চেষ্টা করুন।',
+      account_already_linked_to_different_user:
+        'এই Google অ্যাকাউন্টটি অন্য একটি স্টুডেন্ট প্রোফাইলে যুক্ত আছে। সঠিক Google অ্যাকাউন্ট ব্যবহার করুন অথবা সাপোর্টে যোগাযোগ করুন।',
+      email_does_not_match:
+        'আপনার Google অ্যাকাউন্টের ইমেইলটি বিদ্যমান স্টুডেন্ট অ্যাকাউন্টের ইমেইলের সঙ্গে মেলেনি। একই ইমেইল ব্যবহার করে আবার চেষ্টা করুন।',
+    };
+    const message = accountLinkMessages[authError];
+    if (!message) return;
+
+    const cleanUrl = window.location.pathname + window.location.hash;
+    window.history.replaceState({}, document.title, cleanUrl);
+    setAuthForcedMessage(message);
+    setAuthModalMode('login');
+    setIsAuthModalOpen(true);
+  }, []);
+
   const handleOpenInvoice = () => {
     let inv = activeInvoice || getLatestInvoice(currentUser?.email);
     if (!inv) {

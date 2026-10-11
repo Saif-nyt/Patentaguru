@@ -199,6 +199,7 @@ export const loginStudentWithGoogle = async (): Promise<void> => {
   const result = await authClient.signIn.social({
     provider: "google",
     callbackURL: homeURL(),
+    errorCallbackURL: homeURL(),
   });
   if (result.error) throw result.error;
 };
